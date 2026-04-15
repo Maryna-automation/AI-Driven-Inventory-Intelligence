@@ -1,0 +1,300 @@
+{
+  "name": "AI-Driven-Inventory-Intelligence",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -208,
+        48
+      ],
+      "id": "e2741b03-9132-4043-8eb5-6d85bd536ae5",
+      "name": "Раз в неделю"
+    },
+    {
+      "parameters": {
+        "filePath": "C:/Users/Masha/.n8n-files/warehouse_data.xlsx"
+      },
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        224,
+        48
+      ],
+      "id": "c052b777-4008-4697-9802-c7f57f2d2795",
+      "name": "Читаем Excel"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "headerRow": "={{ true }}"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        48
+      ],
+      "id": "5c9740a7-325e-48f6-bed9-84193d43aead",
+      "name": "Распаковка"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// --- НОВЫЙ КУСОЧЕК ТУТ ---\n// Достаем курс UAH из узла \"HTTP Request\"\n// Важно: проверь, чтобы узел с курсом назывался именно \"HTTP Request\"\nconst liveRate = $node[\"HTTP Request\"].json[\"rates\"][\"UAH\"]; \n// -------------------------\n\nlet totalRevenue = 0;\nlet totalQuantity = 0;\nlet products = [];\n\nfor (const item of items) {\n  const q = Number(item.json[\"Количество\"]) || 0;\n  const p = Number(item.json[\"Цена_EUR\"]) || 0;\n  \n  totalQuantity += q;\n  \n  // --- ИЗМЕНЕНИЕ ТУТ ---\n  // Вместо 42 теперь используем liveRate\n  totalRevenue += (q * p * liveRate); \n  // -------------------------\n  \n  if (q > 0 && item.json[\"Товар\"]) {\n    products.push(item.json[\"Товар\"]);\n  }\n}\n\nlet uniqueProducts = [...new Set(products)].slice(0, 5).join(\", \");\n\nconst d = new Date();\nconst dateHuman = d.toLocaleDateString('ru-RU');\nconst dateNotion = d.toISOString().split('T')[0];\n\nreturn [\n  {\n    json: {\n      total_revenue: Number(totalRevenue.toFixed(2)), \n      total_quantity: Number(totalQuantity),\n      top_products: uniqueProducts || \"Нет продаж\",\n      date: dateHuman,\n      notion_date: dateNotion,\n      reporte: \"Отчет за \" + dateHuman,\n      // Добавим курс в отчет, чтобы ты видела его в письме!\n      current_rate: liveRate \n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        48
+      ],
+      "id": "53c9c62c-8c87-4c7d-b610-67423e563632",
+      "name": "Расчеты"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Ты — опытный бизнес-аналитик. Твоя задача — составить краткий и профессиональный отчет по продажам за неделю.\n\nВот данные для анализа:\n- Дата отчета: {{ $json.date }}\n- Общая выручка: {{ $json.total_revenue }} UAH\n- Общее количество проданных товаров: {{ $json.total_quantity }} шт.\n- Список проданных товаров (топ-5): {{ $json.top_products }}\n\nНапиши отчет по следующей структуре:\n1. Краткое резюме (как прошла неделя).\n2. Анализ выручки и спроса.\n3. Мнение о проданных товарах (какие позиции лидеры).\n4. Одна рекомендация для бизнеса (на что обратить внимание на следующей неделе).\n\nПиши на русском языке, тон деловой, но понятный."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        48
+      ],
+      "id": "aaf58cab-c298-4f1f-badf-edd7be0462cc",
+      "name": "AI Аналитик",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "c6TxI9Qd4Vm3ApJM",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "31669b81-e490-80fd-aa03-d85a43b38de5",
+          "__regex": "^([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})"
+        },
+        "title": "={{ $('Расчеты').item.json.reporte }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Date|date",
+              "date": "={{ $('Расчеты').item.json.notion_date }}"
+            },
+            {
+              "key": "Total Quantity|number",
+              "numberValue": "={{ $('Расчеты').item.json.total_quantity }}"
+            },
+            {
+              "key": "Total Revenue|number",
+              "numberValue": "={{ $('Расчеты').item.json.total_revenue }}"
+            },
+            {
+              "key": "Top Produkt|rich_text",
+              "textContent": "={{ $('Расчеты').item.json.top_products }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        48
+      ],
+      "id": "d7ca9b71-7bf2-48fa-895d-67b30ec455e9",
+      "name": "В Notion",
+      "credentials": {
+        "notionApi": {
+          "id": "ZkXlWVD1Qv4hIZhb",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "harlamovamarina72@gmail.com",
+        "subject": "=🌸 Мой авто-отчет: {{ $node[\"Расчеты\"].json[\"date\"] }}.",
+        "message": "=<div style=\"font-family: Arial, sans-serif; border: 1px solid #4A90E2; padding: 20px; border-radius: 10px;\">\n  <h2 style=\"color: #4A90E2;\">🌸 Еженедельный аналитический отчет</h2>\n  <p>Привет, Машенька! Твоя система отработала на отлично. Вот итоги:</p>\n  \n  <table style=\"width: 100%; border-collapse: collapse;\">\n    <tr style=\"background-color: #f2f2f2;\">\n      <th style=\"padding: 10px; border: 1px solid #ddd; text-align: left;\">Показатель</th>\n      <th style=\"padding: 10px; border: 1px solid #ddd; text-align: left;\">Значение</th>\n    </tr>\n    <tr>\n      <td style=\"padding: 10px; border: 1px solid #ddd;\">Дата отчета</td>\n      <td style=\"padding: 10px; border: 1px solid #ddd;\">{{ $node[\"Расчеты\"].json[\"date\"] }}</td>\n    </tr>\n    <tr>\n      <td style=\"padding: 10px; border: 1px solid #ddd;\"><b>Общая выручка</b></td>\n      <td style=\"padding: 10px; border: 1px solid #ddd; color: #2ecc71;\"><b>{{ $node[\"Расчеты\"].json[\"total_revenue\"] }} грн.</b></td>\n    </tr>\n    <tr>\n      <td style=\"padding: 10px; border: 1px solid #ddd;\">Продано товаров</td>\n      <td style=\"padding: 10px; border: 1px solid #ddd;\">{{ $node[\"Расчеты\"].json[\"total_quantity\"] }} шт.</td>\n    </tr>\n  </table>\n\n  <p style=\"margin-top: 20px;\"><b>🔝 Топ товаров этой недели:</b><br>\n  <span style=\"color: #666;\">{{ $node[\"Расчеты\"].json[\"top_products\"] }}</span></p>\n  \n  <hr style=\"border: 0; border-top: 1px dashed #4A90E2; margin: 20px 0;\">\n  <p style=\"font-size: 12px; color: #999;\">Отчет сформирован автоматически твоим помощником Gemini 🤖</p>\n</div>\nКурс на сегодня: {{ $node[\"Расчеты\"].json[\"current_rate\"] }} грн/евро.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        48
+      ],
+      "id": "7223258a-6e2e-402e-bca0-8999891eb106",
+      "name": "В Почту",
+      "webhookId": "5ee7e21e-9aa5-42f6-83b7-ac8bdcfb4bfd",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Z4MTO6s0MgVNgJEl",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.exchangerate-api.com/v4/latest/EUR",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        0,
+        48
+      ],
+      "id": "923f9084-a6ca-4e43-8632-e4d530921d1a",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {
+    "Раз в неделю": [
+      {
+        "json": {
+          "timestamp": "2026-04-02T15:56:40.783-04:00",
+          "Readable date": "April 2nd 2026, 3:56:40 pm",
+          "Readable time": "3:56:40 pm",
+          "Day of week": "Thursday",
+          "Year": "2026",
+          "Month": "April",
+          "Day of month": "02",
+          "Hour": "15",
+          "Minute": "56",
+          "Second": "40",
+          "Timezone": "America/New_York (UTC-04:00)"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Раз в неделю": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Читаем Excel": {
+      "main": [
+        [
+          {
+            "node": "Распаковка",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Распаковка": {
+      "main": [
+        [
+          {
+            "node": "Расчеты",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Расчеты": {
+      "main": [
+        [
+          {
+            "node": "AI Аналитик",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Аналитик": {
+      "main": [
+        [
+          {
+            "node": "В Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "В Notion": {
+      "main": [
+        [
+          {
+            "node": "В Почту",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Читаем Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "7c4d84da-e168-418c-a27b-a376570cc5ce",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "30ac35f990be076a6ef19602a9a20d08c1567da4a524d212b27c2c262b8d6c0a"
+  },
+  "id": "jhs35O6gYYBA6dgE",
+  "tags": []
+}
